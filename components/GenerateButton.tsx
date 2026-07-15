@@ -2,46 +2,11 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { LoadingView } from '@/components/LoadingView';
 
 // ─── Placeholder views ────────────────────────────────────────────────────────
-// These are inline stubs that satisfy the rendering contract defined in VOC-131.
-// They will be replaced by the real LoadingView (Issue #17) and ErrorView (Issue #18)
-// once those components ship. The interfaces below are intentionally minimal so that
-// the swap-out is a one-line import change.
-
-function LoadingView() {
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="flex flex-col items-center gap-3 py-6"
-    >
-      {/* Spinner */}
-      <svg
-        className="h-8 w-8 animate-spin text-blue-600"
-        xmlns="http://www.w3.org/2000/svg"
-        fill="none"
-        viewBox="0 0 24 24"
-        aria-hidden="true"
-      >
-        <circle
-          className="opacity-25"
-          cx="12"
-          cy="12"
-          r="10"
-          stroke="currentColor"
-          strokeWidth="4"
-        />
-        <path
-          className="opacity-75"
-          fill="currentColor"
-          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-        />
-      </svg>
-      <p className="text-sm text-gray-500">Generating post from latest activity…</p>
-    </div>
-  );
-}
+// LoadingView is now the real component from VOC-132 (components/LoadingView.tsx).
+// ErrorView below remains a stub until VOC-133 (Issue #18) ships.
 
 interface ErrorViewProps {
   message: string;

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 export interface DraftCardProps {
   style: 'raw' | 'polished' | 'short';
@@ -38,12 +38,24 @@ function getCharCountColor(count: number): string {
 export function DraftCard({ style, content, onContentChange }: DraftCardProps) {
   const [copied, setCopied] = useState(false);
   const [localContent, setLocalContent] = useState(content);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const meta = STYLE_LABELS[style];
 
-  // Sync local content if external content changes
+  // Sync local content only if external content changes and is different to prevent cursor jumps
   useEffect(() => {
-    setLocalContent(content);
+    if (content !== localContent) {
+      setLocalContent(content);
+    }
   }, [content]);
+
+  // Handle auto-resizing of textarea to prevent any internal scrollbar inside the card
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, [localContent]);
 
   const charCount = localContent.length;
 
@@ -58,14 +70,12 @@ export function DraftCard({ style, content, onContentChange }: DraftCardProps) {
   };
 
   const handleLinkedInShare = async () => {
-    // Copy to clipboard first for convenience
     try {
       await navigator.clipboard.writeText(localContent);
     } catch (err) {
       console.error('Clipboard copy failed before sharing:', err);
     }
-    
-    // Open LinkedIn compose deep link
+
     const url = `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(
       localContent
     )}`;
@@ -87,16 +97,17 @@ export function DraftCard({ style, content, onContentChange }: DraftCardProps) {
       </div>
 
       {/* Editable Area */}
-      <div className="flex-1 p-4 flex flex-col min-h-[250px]">
+      <div className="flex-1 p-4 flex flex-col bg-transparent">
         <textarea
+          ref={textareaRef}
           value={localContent}
           onChange={(e) => {
             const val = e.target.value;
             setLocalContent(val);
             onContentChange(val);
           }}
-          className="flex-1 w-full resize-none border-0 p-0 text-sm text-gray-800 focus:ring-0 focus:outline-none placeholder-gray-400 font-sans leading-relaxed"
-          placeholder="Write your draft here..."
+          className="w-full resize-none border-0 p-3 text-base text-gray-800 bg-transparent rounded-lg leading-relaxed focus:ring-0 focus:outline-none placeholder-gray-400 font-sans transition-colors duration-150 focus:bg-gray-50 overflow-hidden min-h-[200px]"
+          placeholder="Draft will appear here..."
           aria-label={`${meta.label} draft content`}
         />
       </div>

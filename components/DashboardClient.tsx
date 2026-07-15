@@ -30,7 +30,7 @@ export default function DashboardClient() {
 
       {/* Generate trigger — disabled until a repo is chosen */}
       <section aria-label="Generate post">
-        <GenerateButton selectedRepo={selectedRepo} />
+        <GenerateButton selectedRepo={selectedRepo} onResetRepo={() => setSelectedRepo(null)} />
       </section>
     </div>
   );

@@ -190,4 +190,27 @@ Session Detection:
 * Consider multiple sessions for trend analysis
 * Implement activity timeline visualization
 
+## EPIC 5 — Manual Trigger (VOC-131, VOC-132, VOC-133)
+
+### Completed:
+* Added **GenerateButton** component with disabled/idle, loading, error, and success states (VOC-131)
+* Added **LoadingView** with auto-advancing progress steps and layout-shift-free UI (VOC-132)
+* Added **ErrorView** mapped to 7 distinct failure states with retryable/non-retryable handling (VOC-133)
+* Created `/api/generate` endpoint with server-side error logging (not logging access tokens) and test hooks (VOC-133)
+* Integrated controlled repo selection state between `RepoSelector`, `GenerateButton`, and `DashboardClient` wrapper.
+
+### Test Protocol & Manual Verification:
+All 7 error types were successfully tested and verified:
+1. **no_activity** (No recent activity in 7 days): Mapped to a friendly message prompting user to commit & push. Verification: Selected `[TEST] Trigger No Activity`, clicked Generate. Renders No Activity card with Retry and Go Back actions.
+2. **ai_failure** (Claude API failure): Message explains AI hit a snag. Verification: Selected `[TEST] Trigger Claude/AI Failure`, clicked Generate. Renders AI Failure card with Try Again and Go Back.
+3. **network** (Connection failure): Verification: Disabled network connection, clicked Generate. Client-side fetch threw network exception and immediately rendered the Network Connection card with Try Again.
+4. **auth_expired** (Auth token expired/401): Verification: Selected `[TEST] Trigger Auth Expired (401)`, clicked Generate. API returned 401. UI displayed Session Expired card with "Sign In Again" primary action (no retry button).
+5. **repo_not_found** (Repo access denied/404): Verification: Selected `[TEST] Trigger Repo Access Denied (404)`, clicked Generate. API returned 404. UI displayed Repo Access card with "Choose Different Repository" and "Go back" secondary link. Clicking either cleared the selection state in the parent and returned to repository selection.
+6. **server_error** (Server error/500): Verification: Selected `[TEST] Trigger Server Error (500)`, clicked Generate. API returned 500. UI displayed Server Error card with Try Again.
+7. **timeout** (Request exceeds 45s): Verification: Selected `[TEST] Trigger Timeout (50s)`, clicked Generate. Client aborted request at 45 seconds, throwing AbortError and rendering Timeout card with Try Again.
+
+### Status:
+✅ Epic 5 Complete and ready for review.
+
+
 

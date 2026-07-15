@@ -3,69 +3,41 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LoadingView } from '@/components/LoadingView';
-
-// ─── Placeholder views ────────────────────────────────────────────────────────
-// LoadingView is now the real component from VOC-132 (components/LoadingView.tsx).
-// ErrorView below remains a stub until VOC-133 (Issue #18) ships.
-
-interface ErrorViewProps {
-  message: string;
-  onRetry: () => void;
-}
-
-function ErrorView({ message, onRetry }: ErrorViewProps) {
-  return (
-    <div
-      role="alert"
-      className="flex flex-col items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-4"
-    >
-      <p className="text-sm font-medium text-red-700">{message}</p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white
-          transition-colors hover:bg-red-700 focus-visible:outline focus-visible:outline-2
-          focus-visible:outline-offset-2 focus-visible:outline-red-600"
-      >
-        Retry
-      </button>
-    </div>
-  );
-}
-
-// ─── Props ────────────────────────────────────────────────────────────────────
+import { ErrorView, ErrorType } from '@/components/ErrorView';
 
 interface GenerateButtonProps {
   /** The full repository name (e.g. "owner/repo"). Null when no repo is selected. */
   selectedRepo: string | null;
+  /** Callback to clear the repository selection in the parent component. */
+  onResetRepo?: () => void;
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
 /**
- * VOC-131 — Generate Post trigger button.
+ * VOC-131 & VOC-133 — Generate Post trigger button and error handling flow.
  *
  * Behaviour matrix:
  *   • No repo selected  → disabled button with muted label
  *   • Repo selected     → primary CTA; calls POST /api/generate on click
  *   • Loading           → button replaced by LoadingView (no double-submit possible)
- *   • Error             → ErrorView with retry; button becomes visible again
+ *   • Error             → ErrorView shows mapped user-facing message and retry/back options
  *   • Success           → stores result in sessionStorage, redirects to /drafts
- *
- * sessionStorage is intentional: drafts are ephemeral to the browser session and
- * must not persist across sessions (localStorage would be wrong here).
  */
-export function GenerateButton({ selectedRepo }: GenerateButtonProps) {
+export function GenerateButton({ selectedRepo, onResetRepo }: GenerateButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ type: ErrorType; message?: string } | null>(null);
   const router = useRouter();
 
   async function handleGenerate() {
-    // Guard: should never reach here when disabled, but be explicit.
     if (!selectedRepo) return;
 
     setIsLoading(true);
     setError(null);
+
+    // Set up AbortController for a client-side request timeout of 45 seconds (VOC-133 requirement)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 45000);
 
     try {
       const res = await fetch('/api/generate', {
@@ -73,61 +45,90 @@ export function GenerateButton({ selectedRepo }: GenerateButtonProps) {
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ repoFullName: selectedRepo }),
+        signal: controller.signal,
       });
 
-      // Always parse JSON — the API contract guarantees a JSON body on all responses.
-      const data: unknown = await res.json();
+      clearTimeout(timeoutId);
+
+      // Attempt to parse JSON response. Fallback to empty object if response is not JSON.
+      const data: any = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        const errData = data as { error?: string };
-        throw new Error(errData.error ?? 'Generation failed');
+        let type: ErrorType = 'server_error';
+        
+        if (res.status === 401) {
+          type = 'auth_expired';
+        } else if (res.status === 404) {
+          type = 'repo_not_found';
+        } else if (res.status === 504 || res.status === 408) {
+          type = 'timeout';
+        } else if (
+          res.status === 502 ||
+          res.status === 503 ||
+          (data.error && (data.error.toLowerCase().includes('claude') || data.error.toLowerCase().includes('ai')))
+        ) {
+          type = 'ai_failure';
+        } else if (
+          data.error &&
+          (data.error.toLowerCase().includes('activity') || data.error.toLowerCase().includes('commits'))
+        ) {
+          type = 'no_activity';
+        }
+
+        setError({ type, message: data.error });
+        setIsLoading(false);
+        return;
       }
 
-      const successData = data as { noActivity?: boolean };
-      if (successData.noActivity) {
-        throw new Error(
-          'No recent activity found in this repo. Try a repo with recent commits or PRs.',
-        );
+      if (data.noActivity) {
+        setError({ type: 'no_activity' });
+        setIsLoading(false);
+        return;
       }
 
-      // Store result in sessionStorage so the /drafts page can read it without
-      // a redundant network round-trip. The key is namespaced to avoid collisions.
+      // Store result in sessionStorage so the drafts page can read it.
+      // sessionStorage is used deliberately — drafts are session-specific and shouldn't persist.
       sessionStorage.setItem('voca_drafts', JSON.stringify(data));
       router.push('/drafts');
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : 'Something went wrong. Please try again.';
-      setError(message);
-      // Only reset loading state on error; on success the page navigates away.
+      clearTimeout(timeoutId);
       setIsLoading(false);
+
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError({ type: 'timeout' });
+      } else if (err instanceof TypeError || (err instanceof Error && err.message.toLowerCase().includes('fetch'))) {
+        setError({ type: 'network' });
+      } else {
+        setError({
+          type: 'server_error',
+          message: err instanceof Error ? err.message : 'Something went wrong',
+        });
+      }
     }
   }
 
+  function handleBack() {
+    // If the error was repo_not_found, we should reset the repo selection in parent
+    if (error?.type === 'repo_not_found' && onResetRepo) {
+      onResetRepo();
+    }
+    setError(null);
+  }
+
   // ── State: loading ──────────────────────────────────────────────────────────
-  // Button is NOT rendered during loading, eliminating any double-submit risk.
   if (isLoading) {
     return <LoadingView />;
   }
 
   // ── State: error ────────────────────────────────────────────────────────────
-  // The button becomes visible again alongside the ErrorView so the user can retry.
   if (error) {
     return (
-      <div className="flex w-full max-w-[400px] mx-auto flex-col gap-3">
-        <ErrorView message={error} onRetry={handleGenerate} />
-        <button
-          type="button"
-          id="generate-post-btn"
-          onClick={handleGenerate}
-          disabled={!selectedRepo}
-          className="w-full rounded-lg bg-blue-600 py-3 px-6 font-medium text-white
-            transition-colors hover:bg-blue-700 focus-visible:outline
-            focus-visible:outline-2 focus-visible:outline-offset-2
-            focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Generate Post from Latest Activity
-        </button>
-      </div>
+      <ErrorView
+        errorType={error.type}
+        message={error.message}
+        onRetry={handleGenerate}
+        onBack={handleBack}
+      />
     );
   }
 

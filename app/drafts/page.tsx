@@ -9,11 +9,12 @@ import { LoadingView } from '@/components/LoadingView';
 import { ErrorView, ErrorType } from '@/components/ErrorView';
 
 const DEFAULT_STYLES: Array<'raw' | 'polished' | 'short'> = ['raw', 'polished', 'short'];
+type GenerateResponse = Partial<GenerationResult> & { error?: string };
 
 export default function DraftsPage() {
   const [result, setResult] = useState<GenerationResult | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<{ type: ErrorType; message?: string } | null>(null);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [regenError, setRegenError] = useState<{ type: ErrorType; message?: string } | null>(null);
   const router = useRouter();
 
   // Load from sessionStorage on mount
@@ -45,13 +46,34 @@ export default function DraftsPage() {
     sessionStorage.setItem('voca_drafts', JSON.stringify(updatedResult));
   };
 
+  const getRegenerationError = (status: number, message?: string): ErrorType => {
+    const normalizedMessage = message?.toLowerCase() || '';
+
+    if (status === 401) return 'auth_expired';
+    if (status === 404) return 'repo_not_found';
+    if (status === 504 || status === 408) return 'timeout';
+    if (
+      status === 502 ||
+      status === 503 ||
+      normalizedMessage.includes('claude') ||
+      normalizedMessage.includes('ai')
+    ) {
+      return 'ai_failure';
+    }
+    if (normalizedMessage.includes('activity') || normalizedMessage.includes('commits')) {
+      return 'no_activity';
+    }
+
+    return 'server_error';
+  };
+
   // Re-run generation for the same repository
   const handleRegenerate = async () => {
     const repoFullName = result?.metadata?.repoFullName;
     if (!repoFullName) return;
 
-    setIsLoading(true);
-    setError(null);
+    setIsRegenerating(true);
+    setRegenError(null);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s client timeout
@@ -67,87 +89,51 @@ export default function DraftsPage() {
 
       clearTimeout(timeoutId);
 
-      const data: any = await res.json().catch(() => ({}));
+      const data = (await res.json().catch(() => ({}))) as GenerateResponse;
 
       if (!res.ok) {
-        let type: ErrorType = 'server_error';
-        if (res.status === 401) {
-          type = 'auth_expired';
-        } else if (res.status === 404) {
-          type = 'repo_not_found';
-        } else if (res.status === 504 || res.status === 408) {
-          type = 'timeout';
-        } else if (
-          res.status === 502 ||
-          res.status === 503 ||
-          (data.error && (data.error.toLowerCase().includes('claude') || data.error.toLowerCase().includes('ai')))
-        ) {
-          type = 'ai_failure';
-        } else if (
-          data.error &&
-          (data.error.toLowerCase().includes('activity') || data.error.toLowerCase().includes('commits'))
-        ) {
-          type = 'no_activity';
-        }
-
-        setError({ type, message: data.error });
-        setIsLoading(false);
+        setRegenError({ type: getRegenerationError(res.status, data.error), message: data.error });
         return;
       }
 
       if (data.noActivity) {
-        setError({ type: 'no_activity' });
-        setIsLoading(false);
+        setRegenError({ type: 'no_activity' });
         return;
       }
 
-      // Update local state and sessionStorage
-      setResult(data);
-      sessionStorage.setItem('voca_drafts', JSON.stringify(data));
-      setIsLoading(false);
-    } catch (err: unknown) {
-      clearTimeout(timeoutId);
-      setIsLoading(false);
+      if (!Array.isArray(data.drafts)) {
+        setRegenError({ type: 'server_error', message: 'Regeneration returned an invalid response.' });
+        return;
+      }
 
+      const nextResult: GenerationResult = {
+        noActivity: false,
+        drafts: data.drafts,
+        metadata: data.metadata ?? {
+          repoFullName,
+          generatedAt: new Date().toISOString(),
+        },
+      };
+
+      // Update local state and sessionStorage
+      setResult(nextResult);
+      sessionStorage.setItem('voca_drafts', JSON.stringify(nextResult));
+    } catch (err: unknown) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        setError({ type: 'timeout' });
+        setRegenError({ type: 'timeout' });
       } else if (err instanceof TypeError || (err instanceof Error && err.message.toLowerCase().includes('fetch'))) {
-        setError({ type: 'network' });
+        setRegenError({ type: 'network' });
       } else {
-        setError({
+        setRegenError({
           type: 'server_error',
           message: err instanceof Error ? err.message : 'Something went wrong',
         });
       }
+    } finally {
+      clearTimeout(timeoutId);
+      setIsRegenerating(false);
     }
   };
-
-  const handleBackFromError = () => {
-    setError(null);
-  };
-
-  // ── Render: Loading ────────────────────────────────────────────────────────
-  if (isLoading) {
-    return (
-      <div className="py-12">
-        <LoadingView />
-      </div>
-    );
-  }
-
-  // ── Render: Error ──────────────────────────────────────────────────────────
-  if (error) {
-    return (
-      <div className="py-12">
-        <ErrorView
-          errorType={error.type}
-          message={error.message}
-          onRetry={handleRegenerate}
-          onBack={handleBackFromError}
-        />
-      </div>
-    );
-  }
 
   if (!result) return null;
 
@@ -185,32 +171,46 @@ export default function DraftsPage() {
         </p>
       </div>
 
-      {/* Draft Cards Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-12">
-        {result.drafts.map((draft, index) => {
-          // Fallback style if none provided by API: raw, polished, short in sequence
-          const style = draft.style || DEFAULT_STYLES[index % DEFAULT_STYLES.length];
+      {isRegenerating ? (
+        <div className="mb-12 rounded-xl border border-gray-100 bg-white">
+          <LoadingView />
+        </div>
+      ) : regenError ? (
+        <div className="mb-12 rounded-xl border border-gray-100 bg-white">
+          <ErrorView
+            errorType={regenError.type}
+            message={regenError.message}
+            onRetry={handleRegenerate}
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-12">
+          {result.drafts.map((draft, index) => {
+            // Fallback style if none provided by API: raw, polished, short in sequence
+            const style = draft.style || DEFAULT_STYLES[index % DEFAULT_STYLES.length];
 
-          return (
-            <div key={draft.id || index} className="h-full">
-              <DraftCard
-                style={style}
-                content={draft.text}
-                onContentChange={(newContent) => handleContentChange(index, newContent)}
-              />
-            </div>
-          );
-        })}
-      </div>
+            return (
+              <div key={draft.id || index} className="h-full">
+                <DraftCard
+                  style={style}
+                  content={draft.text}
+                  onContentChange={(newContent) => handleContentChange(index, newContent)}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Regeneration Button */}
       <div className="flex flex-col items-center justify-center border-t border-gray-100 pt-8 gap-3">
         <button
           type="button"
           onClick={handleRegenerate}
-          className="px-6 py-3 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm transition-colors duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          disabled={isRegenerating}
+          className="px-6 py-3 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm transition-colors duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-white"
         >
-          Generate again from this repository
+          Generate again
         </button>
         <p className="text-xs text-gray-400">
           Will pull your latest work activity again and generate fresh drafts.

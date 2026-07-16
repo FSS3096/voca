@@ -56,7 +56,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     // ── Test triggers ──────────────────────────────────────────────────────────
     if (repoFullName === 'trigger-no-activity') {
-      return res.status(200).json({ noActivity: true });
+      return res.status(200).json({
+        noActivity: true,
+        drafts: [],
+        metadata: {
+          repoFullName,
+          generatedAt: new Date().toISOString(),
+        },
+      });
     }
 
     if (repoFullName === 'trigger-ai-failure') {
@@ -81,7 +88,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // For normal requests, fetch activity summary and simulate generation
     const result = await generateActivitySummary(repoFullName, user.accessToken);
     if (!result.summary) {
-      return res.status(200).json({ noActivity: true });
+      return res.status(200).json({
+        noActivity: true,
+        drafts: [],
+        metadata: {
+          repoFullName,
+          generatedAt: new Date().toISOString(),
+        },
+      });
     }
 
     // Mock successful 3 drafts return

@@ -35,8 +35,20 @@ function getCharCountColor(count: number): string {
   return 'text-red-600 font-semibold'; // LinkedIn truncates at ~3000
 }
 
+const LinkedInIcon = ({ className }: { className?: string }) => (
+  <svg
+    className={className}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+  </svg>
+);
+
 export function DraftCard({ style, content, onContentChange }: DraftCardProps) {
   const [copied, setCopied] = useState(false);
+  const [showLinkedInInstruction, setShowLinkedInInstruction] = useState(false);
   const [localContent, setLocalContent] = useState(content);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const meta = STYLE_LABELS[style];
@@ -69,17 +81,42 @@ export function DraftCard({ style, content, onContentChange }: DraftCardProps) {
     }
   };
 
-  const handleLinkedInShare = async () => {
-    try {
-      await navigator.clipboard.writeText(localContent);
-    } catch (err) {
-      console.error('Clipboard copy failed before sharing:', err);
+  const handlePostToLinkedIn = () => {
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    if (isMobile) {
+      // Synchronous fallback for mobile to avoid popup blocker
+      try {
+        const el = document.createElement('textarea');
+        el.value = localContent;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+      } catch (err) {
+        console.error('Synchronous copy failed:', err);
+      }
+      
+      setShowLinkedInInstruction(true);
+      setTimeout(() => setShowLinkedInInstruction(false), 2000);
+      
+      window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank', 'noopener,noreferrer');
+    } else {
+      // Desktop - async copy is fine, but we can do sync to be safe, or stick to modern api
+      navigator.clipboard.writeText(localContent).catch(() => {
+        // Fallback
+        const el = document.createElement('textarea');
+        el.value = localContent;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+      }).finally(() => {
+        setShowLinkedInInstruction(true);
+        setTimeout(() => setShowLinkedInInstruction(false), 2000);
+        window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank', 'noopener,noreferrer');
+      });
     }
-
-    const url = `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(
-      localContent
-    )}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -126,71 +163,73 @@ export function DraftCard({ style, content, onContentChange }: DraftCardProps) {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-2">
-          {/* Copy Button */}
-          <button
-            type="button"
-            onClick={handleCopy}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors duration-150 ${
-              copied
-                ? 'bg-green-50 border-green-200 text-green-700'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-            }`}
-            title="Copy draft content"
-          >
-            {copied ? (
-              <>
-                <svg
-                  className="w-3.5 h-3.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2.5}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-                Copied
-              </>
-            ) : (
-              <>
-                <svg
-                  className="w-3.5 h-3.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
-                  />
-                </svg>
-                Copy
-              </>
-            )}
-          </button>
-
-          {/* Post to LinkedIn Button */}
-          <button
-            type="button"
-            onClick={handleLinkedInShare}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#0A66C2] text-white border border-[#0A66C2] hover:bg-[#004182] transition-colors duration-150"
-            title="Copy to clipboard and open LinkedIn sharing window"
-          >
-            <span>Share</span>
-            <svg
-              className="w-3 h-3"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2.5}
+        <div className="flex flex-col items-end">
+          <div className="flex items-center gap-2">
+            {/* Copy Button */}
+            <button
+              type="button"
+              onClick={handleCopy}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors duration-150 ${
+                copied
+                  ? 'bg-green-50 border-green-200 text-green-700'
+                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+              title="Copy draft content"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-            </svg>
-          </button>
+              {copied ? (
+                <>
+                  <svg
+                    className="w-3.5 h-3.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  Copied
+                </>
+              ) : (
+                <>
+                  <svg
+                    className="w-3.5 h-3.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
+                    />
+                  </svg>
+                  Copy
+                </>
+              )}
+            </button>
+
+            {/* Post to LinkedIn Button */}
+            <button
+              onClick={handlePostToLinkedIn}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#0A66C2] text-white text-sm font-medium hover:bg-[#004182] transition-colors"
+            >
+              <LinkedInIcon className="w-4 h-4" />
+              Post to LinkedIn
+            </button>
+          </div>
+          
+          {/* Instruction Text */}
+          <div className="h-0 relative w-full flex justify-end">
+            {showLinkedInInstruction && (
+              <p className="text-xs text-gray-500 mt-1 absolute top-0 right-0 whitespace-nowrap">
+                Text copied — just paste it in LinkedIn
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 }
+

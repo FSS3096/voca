@@ -78,15 +78,20 @@ export default function RepoSelector({
       })
       .then((d) => {
         if (d.error) throw new Error(d.error);
-        const testRepos: Repo[] = [
-          { name: '[TEST] Trigger No Activity', full_name: 'trigger-no-activity', private: false, updated_at: new Date().toISOString() },
-          { name: '[TEST] Trigger Claude/AI Failure', full_name: 'trigger-ai-failure', private: false, updated_at: new Date().toISOString() },
-          { name: '[TEST] Trigger Auth Expired (401)', full_name: 'trigger-auth-expired', private: false, updated_at: new Date().toISOString() },
-          { name: '[TEST] Trigger Repo Access Denied (404)', full_name: 'trigger-repo-not-found', private: false, updated_at: new Date().toISOString() },
-          { name: '[TEST] Trigger Server Error (500)', full_name: 'trigger-server-error', private: false, updated_at: new Date().toISOString() },
-          { name: '[TEST] Trigger Timeout (50s)', full_name: 'trigger-timeout', private: false, updated_at: new Date().toISOString() },
-        ];
-        setRepos([...(d.repos || []), ...testRepos]);
+        if (process.env.NODE_ENV !== 'production') {
+          const testRepos: Repo[] = [
+            { name: '[TEST] Trigger No Activity', full_name: 'trigger-no-activity', private: false, updated_at: new Date().toISOString() },
+            { name: '[TEST] Trigger Claude/AI Failure', full_name: 'trigger-ai-failure', private: false, updated_at: new Date().toISOString() },
+            { name: '[TEST] Trigger Auth Expired (401)', full_name: 'trigger-auth-expired', private: false, updated_at: new Date().toISOString() },
+            { name: '[TEST] Trigger Repo Access Denied (404)', full_name: 'trigger-repo-not-found', private: false, updated_at: new Date().toISOString() },
+            { name: '[TEST] Trigger Server Error (500)', full_name: 'trigger-server-error', private: false, updated_at: new Date().toISOString() },
+            { name: '[TEST] Trigger Timeout (50s)', full_name: 'trigger-timeout', private: false, updated_at: new Date().toISOString() },
+          ];
+          setRepos([...(d.repos || []), ...testRepos]);
+          return;
+        }
+
+        setRepos(d.repos || []);
       })
       .catch((e: unknown) =>
         setError(e instanceof Error ? e.message : 'Failed to load repositories'),

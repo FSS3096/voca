@@ -10,18 +10,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const session = (await getServerSession(req, res, authOptions as any)) as any;
-  
-  // Test override for auth_expired
   const repoFullName = req.body?.repoFullName;
-  if (repoFullName === 'trigger-auth-expired') {
-    console.error('[/api/generate] Error:', {
-      error: 'Unauthorized',
-      repoFullName,
-      userId: undefined,
-      timestamp: new Date().toISOString(),
-    });
-    return res.status(401).json({ error: 'Your session expired. Sign in again to continue.' });
-  }
 
   if (!session || !session.user) {
     console.error('[/api/generate] Error:', {
@@ -31,6 +20,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       timestamp: new Date().toISOString(),
     });
     return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  // Test override for auth_expired
+  if (repoFullName === 'trigger-auth-expired') {
+    console.error('[/api/generate] Error:', {
+      error: 'Unauthorized',
+      repoFullName,
+      userId: session.user?.email || session.user?.id,
+      timestamp: new Date().toISOString(),
+    });
+    return res.status(401).json({ error: 'Your session expired. Sign in again to continue.' });
   }
 
   // Resolve current user

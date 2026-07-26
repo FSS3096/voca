@@ -12,6 +12,20 @@ interface GenerateButtonProps {
   onResetRepo?: () => void;
 }
 
+type GenerateResponse = {
+  error?: string;
+  noActivity?: boolean;
+};
+
+function getErrorMessage(data: unknown): string | undefined {
+  if (typeof data === 'object' && data !== null && 'error' in data) {
+    const error = (data as { error?: unknown }).error;
+    return typeof error === 'string' ? error : undefined;
+  }
+
+  return undefined;
+}
+
 /**
  * VOC-131 & VOC-133 — Generate Post trigger button and error handling flow.
  *
@@ -51,10 +65,12 @@ export function GenerateButton({ selectedRepo, onResetRepo }: GenerateButtonProp
       clearTimeout(timeoutId);
 
       // Attempt to parse JSON response. Fallback to empty object if response is not JSON.
-      const data: any = await res.json().catch(() => ({}));
+      const data = (await res.json().catch((_err: unknown) => ({}))) as GenerateResponse;
+      const errorMessage = getErrorMessage(data);
 
       if (!res.ok) {
         let type: ErrorType = 'server_error';
+        const normalizedError = errorMessage?.toLowerCase() ?? '';
         
         if (res.status === 401) {
           type = 'auth_expired';
@@ -65,17 +81,15 @@ export function GenerateButton({ selectedRepo, onResetRepo }: GenerateButtonProp
         } else if (
           res.status === 502 ||
           res.status === 503 ||
-          (data.error && (data.error.toLowerCase().includes('claude') || data.error.toLowerCase().includes('ai')))
+          normalizedError.includes('claude') ||
+          normalizedError.includes('ai')
         ) {
           type = 'ai_failure';
-        } else if (
-          data.error &&
-          (data.error.toLowerCase().includes('activity') || data.error.toLowerCase().includes('commits'))
-        ) {
+        } else if (normalizedError.includes('activity') || normalizedError.includes('commits')) {
           type = 'no_activity';
         }
 
-        setError({ type, message: data.error });
+        setError({ type, message: errorMessage });
         setIsLoading(false);
         return;
       }

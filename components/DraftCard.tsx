@@ -55,9 +55,9 @@ export function DraftCard({ style, content, onContentChange }: DraftCardProps) {
 
   // Sync local content only if external content changes and is different to prevent cursor jumps
   useEffect(() => {
-    if (content !== localContent) {
-      setLocalContent(content);
-    }
+    setLocalContent((currentContent) =>
+      currentContent === content ? currentContent : content,
+    );
   }, [content]);
 
   // Handle auto-resizing of textarea to prevent any internal scrollbar inside the card
@@ -81,42 +81,37 @@ export function DraftCard({ style, content, onContentChange }: DraftCardProps) {
     }
   };
 
+  const copyWithExecCommand = () => {
+    try {
+      const el = document.createElement('textarea');
+      el.value = localContent;
+      el.setAttribute('readonly', '');
+      el.style.position = 'fixed';
+      el.style.top = '0';
+      el.style.left = '-9999px';
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      return true;
+    } catch (err: unknown) {
+      console.error('Synchronous copy failed:', err);
+      return false;
+    }
+  };
+
   const handlePostToLinkedIn = () => {
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    
-    if (isMobile) {
-      // Synchronous fallback for mobile to avoid popup blocker
-      try {
-        const el = document.createElement('textarea');
-        el.value = localContent;
-        document.body.appendChild(el);
-        el.select();
-        document.execCommand('copy');
-        document.body.removeChild(el);
-      } catch (err) {
-        console.error('Synchronous copy failed:', err);
-      }
-      
-      setShowLinkedInInstruction(true);
-      setTimeout(() => setShowLinkedInInstruction(false), 2000);
-      
-      window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank', 'noopener,noreferrer');
-    } else {
-      // Desktop - async copy is fine, but we can do sync to be safe, or stick to modern api
-      navigator.clipboard.writeText(localContent).catch(() => {
-        // Fallback
-        const el = document.createElement('textarea');
-        el.value = localContent;
-        document.body.appendChild(el);
-        el.select();
-        document.execCommand('copy');
-        document.body.removeChild(el);
-      }).finally(() => {
-        setShowLinkedInInstruction(true);
-        setTimeout(() => setShowLinkedInInstruction(false), 2000);
-        window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank', 'noopener,noreferrer');
+    const didCopySynchronously = copyWithExecCommand();
+    window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank', 'noopener,noreferrer');
+
+    if (!didCopySynchronously && navigator.clipboard) {
+      void navigator.clipboard.writeText(localContent).catch((err: unknown) => {
+        console.error('Async clipboard copy failed:', err);
       });
     }
+
+    setShowLinkedInInstruction(true);
+    setTimeout(() => setShowLinkedInInstruction(false), 2000);
   };
 
   return (
@@ -232,4 +227,3 @@ export function DraftCard({ style, content, onContentChange }: DraftCardProps) {
     </div>
   );
 }
-
